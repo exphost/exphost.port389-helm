@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "..fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "..labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Values.serviceName }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "..selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+    {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      labels:
+        {{- include "..selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "..serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: ADMINUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "..fullname" . }}-auth
+                  key: ADMINUSER
+            - name: ADMINPASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "..fullname" . }}-auth
+                  key: ADMINPASS
+            - name: DMUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "..fullname" . }}-auth
+                  key: DMUSER
+            - name: DMPASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "..fullname" . }}-auth
+                  key: DMPASS
+            - name: SUFFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "..fullname" . }}
+                  key: SUFFIX
+          ports:
+            - name: http
+              containerPort: 389
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: 389
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 389
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /var/run/dirsrv
+              name: run-dirsrv
+{{- if .Values.persistentStorage.enabled }}
+            - mountPath: /data
+              name: {{ include "..fullname" . }}-data
+{{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: run-dirsrv
+          emptyDir: {}
+{{- if .Values.persistentStorage.enabled }}
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: {{ include "..fullname" . }}-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.persistentStorage.size }}
+      storageClassName: {{ .Values.persistentStorage.storageClass }}
+{{- end }}
